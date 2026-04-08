@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { Archive, Search, Settings, X, Download, Upload, Trash2, Flame } from 'lucide-react'
 import { useStore } from './store'
 import { parseInput } from './utils/parser'
@@ -13,20 +13,33 @@ import { SearchModal } from './components/SearchModal'
 import { FilterBar, type SortOption } from './components/FilterBar'
 import type { FocusNode, Priority } from './types'
 
+const notificationSoundOptions: { label: string; value: string }[] = [
+  { label: 'Smooth notification', value: 'smooth_notification.mp3' },
+  { label: 'Gentle bell', value: 'notification.mp3' },
+  { label: 'Phone ping', value: 'i_phone.mp3' },
+  { label: 'Soft alert', value: 'faaa.mp3' },
+]
+
 export default function App() {
   const {
     nodes,
     focusMode,
+    notificationsEnabled,
+    notificationSound,
     addNode,
     updateNode,
     deleteNode,
     toggleDone,
     setFocusMode,
+    setNotificationsEnabled,
+    setNotificationSound,
     clearAll,
     importNodes,
   } = useStore()
 
   const [selectedNode, setSelectedNode] = useState<FocusNode | null>(null)
+  const [now, setNow] = useState(() => Date.now())
+
   const [view, setView] = useState<'main' | 'archive'>('main')
   const [showSearch, setShowSearch] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -57,15 +70,140 @@ export default function App() {
     updateNode({ ...node, status: 'snoozed', snoozedUntil: until.toISOString() })
   }
 
+  const notificationTimers = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({})
+
+  const handleNotificationToggle = async (enabled: boolean) => {
+    if (!enabled) {
+      setNotificationsEnabled(false)
+      return
+    }
+
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      alert('Push notifications are not supported in this browser.')
+      return
+    }
+
+    const permission = await Notification.requestPermission()
+    if (permission === 'granted') {
+      setNotificationsEnabled(true)
+    } else if (permission === 'denied') {
+      alert('Push notifications are blocked. Please enable them in your browser settings.')
+      setNotificationsEnabled(false)
+    } else {
+      setNotificationsEnabled(false)
+    }
+  }
+
+  const playNotificationSound = () => {
+    if (typeof window === 'undefined') return
+    const src = `/audio/${notificationSound}`
+    const audio = new Audio(src)
+    audio.volume = 0.6
+    audio.play().catch(() => {
+      // ignore autoplay failures, user gesture may be required
+    })
+  }
+
+  const sendTestNotification = async () => {
+
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      alert('Push notifications are not supported in this browser.')
+      return
+    }
+
+    if (Notification.permission === 'default') {
+      const permission = await Notification.requestPermission()
+      if (permission !== 'granted') {
+        alert('Notifications are not enabled or permitted in your browser.')
+        return
+      }
+    }
+
+    if (Notification.permission !== 'granted') {
+      alert('Notifications are not enabled or permitted in your browser.')
+      return
+    }
+
+    playNotificationSound()
+
+    try {
+      new Notification('FocusFlow Notification', {
+        body: 'Notifications are working — reminder test.',
+        icon: '/favicon.svg',
+      })
+    } catch (error) {
+      console.error('Notification failed:', error)
+      alert('Notification failed to display. Check browser notification permissions and system settings.')
+    }
+  }
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 30_000)
+    return () => window.clearInterval(interval)
+  }, [])
+
+  useEffect(() => {   
+    if (!notificationsEnabled || typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') {
+      Object.values(notificationTimers.current).forEach((timer) => timer && clearTimeout(timer))
+      notificationTimers.current = {}
+      return
+    }
+
+    const now = Date.now()
+    const activeScheduleIds = new Set<string>()
+    const timers = notificationTimers.current
+
+    for (const node of nodes) {
+      if (node.status === 'done') continue
+      const scheduleAt = node.reminderAt ?? node.dueAt
+      if (!scheduleAt) continue
+
+      const target = new Date(scheduleAt).getTime()
+      const delay = target - now
+      if (delay <= 0 || delay > 7 * 24 * 60 * 60 * 1000) continue
+
+      activeScheduleIds.add(node.id)
+      if (timers[node.id]) continue
+
+      timers[node.id] = window.setTimeout(() => {
+        if (Notification.permission === 'granted') {
+          playNotificationSound()
+          new Notification('FocusFlow Reminder', {
+            body: node.content,
+            icon: '/favicon.svg',
+            tag: node.id,
+          })
+        }
+        delete timers[node.id]
+      }, delay)
+    }
+
+    Object.keys(timers).forEach((id) => {
+      if (!activeScheduleIds.has(id)) {
+        const timer = timers[id]
+        if (timer) clearTimeout(timer)
+        delete timers[id]
+      }
+    })
+
+    return () => {
+      Object.values(timers).forEach((timer) => timer && clearTimeout(timer))
+    }
+  }, [nodes, notificationsEnabled])
+
   const activeNodes = useMemo(
     () =>
       nodes.filter((n) => {
+        if (n.status === 'done') {
+          if (!n.completedAt) return false
+          return new Date().getTime() - new Date(n.completedAt).getTime() < 24 * 60 * 60 * 1000
+        }
         if (n.status === 'snoozed' && n.snoozedUntil) {
-          return new Date() >= new Date(n.snoozedUntil)
+          return now >= new Date(n.snoozedUntil).getTime()
         }
         return true
       }),
-    [nodes]
+    [nodes, now]
   )
 
   // All unique projects across all nodes
@@ -165,7 +303,7 @@ export default function App() {
   const pendingCount = nodes.filter((n) => n.status === 'pending').length
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30">
+    <div className="min-h-screen bg-linear-to-br from-slate-50 via-white to-indigo-50/30">
       {/* Header */}
       <header className="sticky top-0 z-20 bg-white/85 backdrop-blur-md border-b border-gray-100/80">
         <div className="max-w-2xl mx-auto px-6 py-4 flex items-center justify-between">
@@ -354,6 +492,11 @@ export default function App() {
       {showSettings && (
         <SettingsModal
           nodeCount={nodes.length}
+          notificationsEnabled={notificationsEnabled}
+          notificationSound={notificationSound}
+          onToggleNotifications={handleNotificationToggle}
+          onSetNotificationSound={setNotificationSound}
+          onSendTestNotification={sendTestNotification}
           onClose={() => setShowSettings(false)}
           onClearAll={() => {
             if (confirm('Delete ALL tasks? This cannot be undone.')) {
@@ -371,13 +514,18 @@ export default function App() {
 
 interface SettingsModalProps {
   nodeCount: number
+  notificationsEnabled: boolean
+  notificationSound: string
+  onToggleNotifications: (enabled: boolean) => void
+  onSetNotificationSound: (sound: string) => void
+  onSendTestNotification: () => void
   onClose: () => void
   onClearAll: () => void
   onExport: () => void
   onImport: () => void
 }
 
-function SettingsModal({ nodeCount, onClose, onClearAll, onExport, onImport }: SettingsModalProps) {
+function SettingsModal({ nodeCount, notificationsEnabled, notificationSound, onToggleNotifications, onSetNotificationSound, onSendTestNotification, onClose, onClearAll, onExport, onImport }: SettingsModalProps) {
   return (
     <div
       className="fixed inset-0 bg-black/25 backdrop-blur-[2px] flex items-center justify-center z-50 p-4"
@@ -394,7 +542,55 @@ function SettingsModal({ nodeCount, onClose, onClearAll, onExport, onImport }: S
           {nodeCount} task{nodeCount !== 1 ? 's' : ''} stored locally
         </p>
 
-        <div className="space-y-2">
+        <div className="space-y-3">
+          <div className="rounded-2xl border border-gray-100 p-4 bg-gray-50">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Push notifications</p>
+                <p className="text-[12px] text-gray-500 mt-1">
+                  Receive browser reminders for tasks with a date/time.
+                </p>
+              </div>
+              <button
+                onClick={() => onToggleNotifications(!notificationsEnabled)}
+                className={`px-3 py-2 rounded-full text-sm font-semibold transition-colors ${
+                  notificationsEnabled
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-white text-gray-700 border border-gray-200'
+                }`}
+              >
+                {notificationsEnabled ? 'Enabled' : 'Disabled'}
+              </button>
+            </div>
+            <div className="mt-3 space-y-3">
+              <label className="block text-[12px] font-semibold text-gray-700">Notification sound</label>
+              <div className="flex items-center gap-2">
+                <select
+                  value={notificationSound}
+                  onChange={(e) => onSetNotificationSound(e.target.value)}
+                  className="flex-1 rounded-full border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 outline-none focus:border-indigo-300 transition-colors"
+                >
+                  {notificationSoundOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={onSendTestNotification}
+                  className="px-3 py-2 rounded-full bg-white text-gray-700 border border-gray-200 text-sm font-semibold hover:bg-gray-100 transition-colors"
+                >
+                  Preview
+                </button>
+              </div>
+              <p className="text-[11px] text-gray-500">Default is smooth_notification.mp3.</p>
+            </div>
+            {typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'denied' && (
+              <p className="text-[11px] text-red-500 mt-3">
+                Browser notifications are blocked. Please enable them in your browser settings.
+              </p>
+            )}
+          </div>
           <button
             onClick={onExport}
             className="w-full flex items-center gap-3 px-4 py-3 text-[13px] font-semibold text-gray-700 hover:bg-gray-50 rounded-xl transition-colors border border-gray-100"

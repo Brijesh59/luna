@@ -1,41 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState } from 'react'
 import { format, isToday, isTomorrow, isPast } from 'date-fns'
 import { CalendarClock, Moon, Flame } from 'lucide-react'
 import type { FocusNode } from '../types'
-
-// ── Web notification scheduler ──────────────────────────────
-export function useNotification(node: FocusNode) {
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    if (!node.dueAt || node.status === 'done') return
-
-    // Request permission once
-    if (Notification.permission === 'default') {
-      Notification.requestPermission()
-    }
-
-    const due = new Date(node.dueAt).getTime()
-    const now = Date.now()
-    const delay = due - now
-
-    if (delay <= 0 || delay > 7 * 24 * 60 * 60 * 1000) return // skip past or >7d away
-
-    timerRef.current = setTimeout(() => {
-      if (Notification.permission === 'granted') {
-        new Notification('FocusFlow Reminder', {
-          body: node.content,
-          icon: '/favicon.ico',
-          tag: node.id, // prevents duplicate
-        })
-      }
-    }, delay)
-
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current)
-    }
-  }, [node.id, node.dueAt, node.status, node.content])
-}
 
 // ── Tooltip ──────────────────────────────────────────────────
 function Tooltip({ label, children }: { label: string; children: React.ReactNode }) {
@@ -80,8 +46,6 @@ interface NodeItemProps {
 
 // ── Component ────────────────────────────────────────────────
 export function NodeItem({ node, onToggleDone, onClick, onSnooze }: NodeItemProps) {
-  useNotification(node)
-
   const isDone   = node.status === 'done'
   const dueDate  = node.dueAt ? new Date(node.dueAt) : undefined
   const isOverdue = dueDate && isPast(dueDate) && !isDone
@@ -104,19 +68,25 @@ export function NodeItem({ node, onToggleDone, onClick, onSnooze }: NodeItemProp
           onClick={(e) => { e.stopPropagation(); onToggleDone(node.id) }}
           className="shrink-0 mt-0.5 focus:outline-none"
         >
-          {isDone ? (
-            <div className="w-[18px] h-[18px] rounded-[5px] bg-green-500 flex items-center justify-center">
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
-          ) : (
-            <div className={`w-[18px] h-[18px] rounded-[5px] border-2 transition-colors ${
-              isOverdue
-                ? 'border-red-400 group-hover:border-red-500'
-                : 'border-gray-300 group-hover:border-indigo-400'
-            }`} />
-          )}
+          <div
+            className={`w-[18px] h-[18px] rounded-[5px] flex items-center justify-center transition-all duration-200 ${
+              isDone
+                ? 'bg-indigo-500 border-transparent shadow-sm scale-105'
+                : `border-2 ${isOverdue ? 'border-red-400 group-hover:border-red-500' : 'border-gray-300 group-hover:border-indigo-400'}`
+            }`}
+          >
+            <svg
+              className={`w-2.5 h-2.5 transition-all duration-200 ${
+                isDone ? 'opacity-100 scale-100' : 'opacity-0 scale-75'
+              }`}
+              width="10"
+              height="10"
+              viewBox="0 0 10 10"
+              fill="none"
+            >
+              <path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
         </button>
 
         {/* Content */}
@@ -165,16 +135,18 @@ export function NodeItem({ node, onToggleDone, onClick, onSnooze }: NodeItemProp
         </div>
 
         {/* Quick actions */}
-        {!isDone && onSnooze && (
+        {!isDone && (
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-            <Tooltip label="Snooze 1h">
-              <button
-                onClick={handleSnooze1h}
-                className="p-1.5 rounded-lg hover:bg-indigo-50 text-gray-300 hover:text-indigo-500 transition-colors"
-              >
-                <Moon className="w-3.5 h-3.5" />
-              </button>
-            </Tooltip>
+            {onSnooze && (
+              <Tooltip label="Snooze 1h">
+                <button
+                  onClick={handleSnooze1h}
+                  className="p-1.5 rounded-lg hover:bg-indigo-50 text-gray-300 hover:text-indigo-500 transition-colors"
+                >
+                  <Moon className="w-3.5 h-3.5" />
+                </button>
+              </Tooltip>
+            )}
             <Tooltip label="Make urgent">
               <button
                 onClick={(e) => { e.stopPropagation(); onClick({ ...node, priority: 'high' }) }}

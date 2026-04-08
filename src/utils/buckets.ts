@@ -2,7 +2,23 @@ import { isPast, isToday } from 'date-fns'
 import type { FocusNode, Bucket, BucketMap } from '../types'
 
 export function getBucket(node: FocusNode): Bucket {
-  if (node.status === 'done') return 'done'
+  if (node.status === 'done') {
+    // If completed within 24 hours, keep in original bucket
+    if (node.completedAt && (new Date().getTime() - new Date(node.completedAt).getTime()) < 24 * 60 * 60 * 1000) {
+      // Use same logic as pending
+      if (node.type === 'idea') return 'ideas'
+      if (node.type === 'note') return 'unsorted'
+      if (node.priority === 'high') return 'focus'
+      if (node.dueAt) {
+        const due = new Date(node.dueAt)
+        if (isPast(due) || isToday(due)) return 'focus'
+        return 'upcoming'
+      }
+      return 'unsorted'
+    } else {
+      return 'done'
+    }
+  }
 
   if (node.status === 'snoozed' && node.snoozedUntil) {
     if (new Date() < new Date(node.snoozedUntil)) return 'unsorted'

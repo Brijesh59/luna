@@ -6,11 +6,15 @@ import type { FocusNode } from './types'
 interface StoreState {
   nodes: FocusNode[]
   focusMode: boolean
+  notificationsEnabled: boolean
+  notificationSound: string
   addNode: (node: FocusNode) => void
   updateNode: (node: FocusNode) => void
   deleteNode: (id: string) => void
   toggleDone: (id: string) => void
   setFocusMode: (val: boolean) => void
+  setNotificationsEnabled: (val: boolean) => void
+  setNotificationSound: (sound: string) => void
   clearAll: () => void
   importNodes: (nodes: FocusNode[]) => void
 }
@@ -20,6 +24,8 @@ export const useStore = create<StoreState>()(
     (set) => ({
       nodes: [],
       focusMode: false,
+      notificationsEnabled: false,
+      notificationSound: 'smooth_notification.mp3',
 
       addNode: (node) =>
         set((s) => ({ nodes: [node, ...s.nodes] })),
@@ -46,6 +52,8 @@ export const useStore = create<StoreState>()(
         })),
 
       setFocusMode: (val) => set({ focusMode: val }),
+      setNotificationsEnabled: (val) => set({ notificationsEnabled: val }),
+      setNotificationSound: (sound) => set({ notificationSound: sound }),
 
       clearAll: () => set({ nodes: [] }),
 

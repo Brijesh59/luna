@@ -11,7 +11,6 @@ import { TaskDetailModal } from './components/TaskDetailModal'
 import { ArchiveView } from './components/ArchiveView'
 import { SearchModal } from './components/SearchModal'
 import { FilterBar, type SortOption } from './components/FilterBar'
-import { CatMascot } from './components/CatMascot'
 import type { FocusNode, Priority } from './types'
 
 export default function App() {

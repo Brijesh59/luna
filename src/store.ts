@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { z } from 'zod'
 import { NodeSchema } from './types'
 import type { FocusNode } from './types'
 
@@ -38,10 +37,10 @@ export const useStore = create<StoreState>()(
           nodes: s.nodes.map((n) =>
             n.id === id
               ? {
-                  ...n,
-                  status: n.status === 'done' ? 'pending' : 'done',
-                  completedAt: n.status === 'done' ? undefined : new Date().toISOString(),
-                }
+                ...n,
+                status: n.status === 'done' ? 'pending' : 'done',
+                completedAt: n.status === 'done' ? undefined : new Date().toISOString(),
+              }
               : n
           ),
         })),
